@@ -1,0 +1,37 @@
+{
+  "script_version": "0.1",
+  "steps": [
+    {
+      "action": "goto",
+      "path": "/appointments"
+    },
+    {
+      "action": "click",
+      "row": {
+        "selector": "table tbody tr",
+        "index": 0
+      },
+      "role": "button",
+      "name": "Reschedule",
+      "anchor": {
+        "selector": "td.appt-id",
+        "value": "A-104"
+      }
+    },
+    {
+      "action": "fill",
+      "selector": "#new_start",
+      "value": "{to}"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Save",
+      "submits_write": true
+    },
+    {
+      "action": "expect_text",
+      "text": "Appointment updated"
+    }
+  ]
+}
