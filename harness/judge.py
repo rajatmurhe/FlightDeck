@@ -72,3 +72,34 @@ def fixture_check(entry: dict, fixture: dict, report: dict) -> dict:
         return {"ok": ok, "why": f"changed rows {ids}; A0 must move {who['target']} into the slot held by "
                                  f"{who.get(check['role'])}"}
     raise ValueError(f"unknown fixture check {check['must']!r}")
+
+
+def in_scope_rows(receipt: dict) -> set[str]:
+    """Rows the receipt's own scope covered: target, collateral reads, slot occupants."""
+    rows = set()
+    for c in receipt["checks"]:
+        if c["check"] in ("target", "collateral_candidates") and c["via"] != "pre_action_snapshot":
+            rows.add(c["subject"])
+        if c["check"] in ("destination_slot", "origin_slot"):
+            rows |= set(c["observed"].get("occupants") or [])
+            rows |= set(c["observed"].get("occupants_before_action") or [])
+    return rows
+
+
+def in_scope_false_approval(fixture: dict, receipt: dict, report: dict) -> bool:
+    """A verified_within_scope receipt whose in-scope state is actually wrong (scorer truth)."""
+    if receipt["verdict"] != "verified_within_scope":
+        return False
+    req = fixture["request"]
+    target, db = req["target_id"], report["db"]
+    changed = {r["id"]: r for r in db["changed_rows"]}
+    if receipt["claim"] == "requested_change_applied":
+        t = changed.get(target)
+        if t is None or t["fields"] != ["start"] or t["after"]["start"] != req["to"]:
+            return True
+        if "destination_occupant" in roles(fixture):   # moved into a booked slot: double booking
+            return True
+    elif target in changed:
+        return True
+    scope = in_scope_rows(receipt)
+    return any(rid in scope for rid in changed if rid != target) or bool(db["inserted"] or db["deleted"])
