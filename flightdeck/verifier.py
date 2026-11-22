@@ -20,7 +20,7 @@ from flightdeck.receipt_rules import CHANGE_CLAIM
 POLL_INTERVAL_S = 1.0
 POLL_TIMEOUT_S = 8.0
 LABELS = {"ID": "displayed_id", "Patient": "patient", "Clinician": "clinician", "Start": "start",
-          "Duration": "duration_min", "Status": "status"}
+          "Duration": "duration_min", "Status": "status", "Last updated": "last_updated"}
 
 DETAIL_JS = """() => {
   const out = {};
@@ -124,7 +124,9 @@ class Preflight:
     evidence: dict[str, str] = field(default_factory=dict)
 
 
-def preflight(page: Page, base: str, contract: dict, script: dict, ev: Evidence) -> Preflight:
+def preflight(page: Page, base: str, contract: dict, script: dict, ev: Evidence,
+              clinician_hint: str | None = None) -> Preflight:
+    """clinician_hint: the request's clinician, used only when the detail page does not show one."""
     target = contract["target"]["id"]
     ch = contract["change"][0]
     t = read_record(page, base, target)
@@ -152,7 +154,7 @@ def preflight(page: Page, base: str, contract: dict, script: dict, ev: Evidence)
             at_risk[rid] = read_record(page, base, rid)
             at_risk_ev[rid] = ev.shot(page, f"pre-detail-{rid}")
 
-    clinician = t["fields"].get("clinician")
+    clinician = t["fields"].get("clinician") or clinician_hint
     dest = read_slot(page, base, clinician, ch["to"])
     dest_ev = ev.shot(page, "pre-day-destination")
     origin = read_slot(page, base, clinician, ch["from"])
@@ -188,6 +190,8 @@ def verify(page: Page, base: str, contract: dict, pre: Preflight, wrote: bool, e
     want_start = ch["to"] if wrote else ch["from"]
     expected = {"start": want_start}
     expected.update({f: pre.target["fields"][f] for f in contract["preserve"] if f in pre.target["fields"]})
+    if "clinician" in contract["preserve"] and "clinician" not in expected and pre.clinician:
+        expected["clinician"] = pre.clinician   # from the request when the page never showed it
 
     # Target: fresh search -> detail every second, up to 8 s, stop on a match.
     reads, t0 = 0, time.monotonic()
@@ -233,8 +237,8 @@ def verify(page: Page, base: str, contract: dict, pre: Preflight, wrote: bool, e
     origin_subject = f"{pre.clinician or 'clinician'}, {short(ch['from'])}"
     dest_before = pre.dest_before or []
     origin_before = pre.origin_before or []
-    if wrote:
-        dest_exp = set(dest_before) | {target}
+    if wrote:   # a slot is clinician + start; after the move it must hold the target alone
+        dest_exp = {target}
         origin_exp = set(origin_before) - {target}
     else:
         dest_exp = set(dest_before) - {target}
