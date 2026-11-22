@@ -87,7 +87,9 @@ def _seeded(design: str, seed: int) -> dict:
             clin = rng.choice([doc, other])
             start = _at(tue, rng.choice([0, 1, 2, 3]), rng.choice([9, 10, 11, 12, 14, 15, 16, 17]),
                         rng.choice([0, 30]))
-            if (clin[0], start) not in taken:   # never the destination slot, never a duplicate
+            # Never the destination slot, never a duplicate, and always after the decoy,
+            # so the target keeps row 1 and the decoy row 2 in the start-ordered list.
+            if (clin[0], start) not in taken and start > rows[1]["start"]:
                 taken.add((clin[0], start))
                 rows.append(_row(appt_id, patient, clin, start))
                 break
