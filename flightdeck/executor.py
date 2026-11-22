@@ -22,6 +22,7 @@ FIELD_WAIT_MS = 3000
 DEFAULT_ANCHOR = "td.appt-id"
 CONTROL_ROLES = ("button", "menuitem", "link")
 MAX_REPAIR_CLICKS = 2
+POST_FORM_JS = "el => { const f = el.form || el.closest('form'); return f ? (f.getAttribute('method') || 'get').toLowerCase() : null; }"
 
 
 class OneWriteViolation(RuntimeError):
@@ -64,7 +65,8 @@ def replay_a0(page: Page, base_url: str, script: dict, request: dict) -> dict:
 
 
 def replay(page: Page, base_url: str, script: dict, request: dict, guard: bool,
-           repair: dict | None = None) -> dict:
+           repair: dict | None = None, allow_new_submits: bool = False) -> dict:
+    """allow_new_submits exists only so tests can show the sandbox verifier also catches damage."""
     base = base_url.rstrip("/")
     target = request["target_id"]
     steps_run: list[str] = []
@@ -90,6 +92,10 @@ def replay(page: Page, base_url: str, script: dict, request: dict, guard: bool,
                         control = find_control(row, name)
                         if control is None:
                             failed = {"step": number, "reason": "control_not_found"}
+                            break
+                        # Grammar: a repair never submits a new write (e.g. a Cancel form).
+                        if not allow_new_submits and control.evaluate(POST_FORM_JS) == "post":
+                            failed = {"step": number, "reason": "new_submit_blocked"}
                             break
                         control.click()
                     if failed:
