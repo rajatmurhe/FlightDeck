@@ -3,6 +3,7 @@
 {% block main %}
 <h1>Appointments</h1>
 {% if updated %}<p class="banner" role="status">Appointment updated</p>{% endif %}
+{% if cancelled %}<p class="banner" role="status">Appointment cancelled</p>{% endif %}
 <table>
   <thead>
     <tr><th>ID</th><th>Patient</th><th>Clinician</th><th>Start</th><th>Duration</th><th>Status</th><th></th></tr>
@@ -17,13 +18,51 @@
       <td>{{ r.duration_min }} min</td>
       <td>{{ r.status }}</td>
       <td>
+      {% if controls == "siblings" %}
         <form class="inline" method="get" action="/reschedule">
           <input type="hidden" name="appointment_id" value="{{ r.id }}">
-          <button type="submit">Reschedule</button>
+          <button type="submit">Change time</button>
         </form>
+        <form class="inline" method="post" action="/cancel">
+          <input type="hidden" name="appointment_id" value="{{ r.id }}">
+          <button type="submit">Cancel</button>
+        </form>
+        <form class="inline" method="get" action="/notes">
+          <input type="hidden" name="appointment_id" value="{{ r.id }}">
+          <button type="submit">Notes</button>
+        </form>
+      {% elif controls == "menu" %}
+        <button type="button" class="menu-toggle" aria-haspopup="menu" aria-expanded="false">More</button>
+        <div class="menu" role="menu" hidden>
+          <form class="inline" method="get" action="/reschedule">
+            <input type="hidden" name="appointment_id" value="{{ r.id }}">
+            <button type="submit" role="menuitem">Reschedule</button>
+          </form>
+          <form class="inline" method="post" action="/cancel">
+            <input type="hidden" name="appointment_id" value="{{ r.id }}">
+            <button type="submit" role="menuitem">Cancel</button>
+          </form>
+        </div>
+      {% else %}
+        <form class="inline" method="get" action="/reschedule">
+          <input type="hidden" name="appointment_id" value="{{ r.id }}">
+          <button type="submit">{{ "Reschedule appt" if controls == "renamed" else "Reschedule" }}</button>
+        </form>
+      {% endif %}
       </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
+{% if controls == "menu" %}
+<script>
+  for (const b of document.querySelectorAll('button.menu-toggle')) {
+    b.addEventListener('click', () => {
+      const m = b.nextElementSibling;
+      m.hidden = !m.hidden;
+      b.setAttribute('aria-expanded', String(!m.hidden));
+    });
+  }
+</script>
+{% endif %}
 {% endblock %}

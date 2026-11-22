@@ -17,7 +17,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 IST = timezone(timedelta(hours=5, minutes=30))
-KNOWN_FLAGS = {"miswrite", "hide_detail_fields", "collateral_write"}
+KNOWN_FLAGS = {"miswrite", "hide_detail_fields", "collateral_write", "row_controls"}
+ROW_CONTROLS = {"renamed", "siblings", "menu"}
 DETAIL_FIELDS = {"patient", "clinician", "start", "duration_min", "status", "updated_at"}
 NEW_START = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -61,6 +62,9 @@ def load_flags(path: Path | None) -> dict:
                                and isinstance(cw["set"], dict) and set(cw["set"]) == {"status"}
                                and cw["set"]["status"] in {"booked", "cancelled"}):
         raise UnknownFlagError("collateral_write must be {'on': id, 'id': id, 'set': {'status': ...}}")
+    rc = flags.get("row_controls")
+    if rc is not None and rc not in ROW_CONTROLS:
+        raise UnknownFlagError(f"row_controls must be one of {sorted(ROW_CONTROLS)}")
     return flags
 
 
@@ -96,7 +100,9 @@ def create_app(db_path: str | Path, flags_path: str | Path | None = None) -> Fas
     @app.get("/appointments", response_class=HTMLResponse)
     def list_page(request: Request, msg: str | None = None):
         rows = query(APPT_SQL + " ORDER BY a.start, a.id")
-        return render(request, "list.html", rows=rows, updated=(msg == "updated"))
+        controls = load_flags(flags_file).get("row_controls", "default")
+        return render(request, "list.html", rows=rows, controls=controls,
+                      updated=(msg == "updated"), cancelled=(msg == "cancelled"))
 
     @app.get("/appointments/{appt_id}", response_class=HTMLResponse)
     def detail(request: Request, appt_id: str):
@@ -155,5 +161,25 @@ def create_app(db_path: str | Path, flags_path: str | Path | None = None) -> Fas
                 con.execute("UPDATE appointments SET status = ?, updated_at = ? WHERE id = ?",
                             (cw["set"]["status"], now, cw["id"]))
         return RedirectResponse("/appointments?msg=updated", status_code=303)
+
+    @app.get("/notes", response_class=HTMLResponse)
+    def notes(request: Request, appointment_id: str):
+        appt = get_appt(appointment_id)
+        if appt is None:
+            return not_found(request, f"Appointment {appointment_id}")
+        return render(request, "notes.html", a=appt)
+
+    @app.post("/cancel", response_class=HTMLResponse)
+    def cancel(request: Request, appointment_id: str = Form(...)):
+        """A real write: any repair that lands here is a bad repair."""
+        if get_appt(appointment_id) is None:
+            return not_found(request, f"Appointment {appointment_id}")
+        now = datetime.now(IST).isoformat(timespec="seconds")
+        with closing(connect()) as con, con:
+            con.execute("UPDATE appointments SET status = 'cancelled', updated_at = ? WHERE id = ?",
+                        (now, appointment_id))
+            con.execute("INSERT INTO notifications (appt_id, kind, at) VALUES (?, 'cancelled', ?)",
+                        (appointment_id, now))
+        return RedirectResponse("/appointments?msg=cancelled", status_code=303)
 
     return app

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30))
 UPDATED_AT = "2026-11-20T09:00:00+05:30"   # fixed, so seeding is byte-deterministic
-BUILT_DESIGNS = {"C0", "R1", "O1", "O2", "I1", "S1", "B1"}
+BUILT_DESIGNS = {"C0", "R1", "O1", "O2", "I1", "S1", "B1", "K0", "K1", "K2"}
 
 # Synthetic names only. Never real patient data.
 PATIENT_NAMES = [
@@ -22,6 +22,8 @@ CLINICIAN_NAMES = [
     "Dr. Rao", "Dr. Menon", "Dr. Iyer", "Dr. Kapoor", "Dr. Nair", "Dr. Bose",
     "Dr. Pillai", "Dr. Shah", "Dr. Verma", "Dr. Das",
 ]
+
+ROW_CONTROLS = {"K0": "renamed", "K1": "siblings", "K2": "menu"}
 
 # Canonical week: Tue 15 Dec 2026 is the target day.
 BASE_TUE = datetime(2026, 12, 15, tzinfo=IST)
@@ -124,6 +126,8 @@ def _faults(design: str, fx: dict) -> dict:
     if design == "B1":   # backend also changes an out-of-scope record
         return {"portal_flags": {"collateral_write": {"on": target, "id": out_of_scope,
                                                       "set": {"status": "cancelled"}}}}
+    if design in ROW_CONTROLS:   # the row's control changed (K family); applies to every row
+        return {"portal_flags": {"row_controls": ROW_CONTROLS[design]}}
     return {}
 
 
