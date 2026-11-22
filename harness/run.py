@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m harness.run")
     ap.add_argument("--design", required=True)
     ap.add_argument("--seed", type=int, required=True)
-    ap.add_argument("--arm", default="A0", choices=["A0"])
+    ap.add_argument("--arm", default="A1", choices=["A0", "A1"])
     ap.add_argument("--workdir", default=None)
     ap.add_argument("--runs-dir", default="runs")
     ap.add_argument("--settle", type=float, default=SETTLE_S)
