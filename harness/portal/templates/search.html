@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block main %}
+<h1>Search by ID</h1>
+<form method="get" action="/search">
+  <label for="q">Appointment ID</label>
+  <input id="q" name="id" value="{{ q }}">
+  <button type="submit">Search</button>
+</form>
+{% if q %}
+  {% if a %}
+  <table>
+    <thead><tr><th>ID</th><th>Patient</th><th>Clinician</th><th>Start</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="appt-id"><a href="/appointments/{{ a.id }}">{{ a.id }}</a></td>
+        <td>{{ a.patient }}</td>
+        <td>{{ a.clinician }}</td>
+        <td><time datetime="{{ a.start }}">{{ a.start | pretty }}</time></td>
+      </tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p>No appointment with that ID</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}Clinic portal{% endblock %}</title>
+  <style>
+    body { font: 15px/1.4 system-ui, sans-serif; margin: 24px; color: #222; }
+    nav a { margin-right: 16px; }
+    table { border-collapse: collapse; margin-top: 12px; }
+    th, td { border-bottom: 1px solid #ddd; padding: 6px 12px; text-align: left; }
+    .banner { background: #e6f4ea; border: 1px solid #9ccfa8; padding: 8px 12px; margin: 12px 0; }
+    .error { color: #a00; }
+    dl { display: grid; grid-template-columns: max-content auto; gap: 4px 16px; }
+    dt { font-weight: 600; }
+    form.inline { margin: 0; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/appointments">Appointments</a>
+    <a href="/search">Search</a>
+    <a href="/day">Clinician day</a>
+  </nav>
+  <main>{% block main %}{% endblock %}</main>
+</body>
+</html>

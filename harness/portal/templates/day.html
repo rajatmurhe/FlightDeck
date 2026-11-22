@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Clinician day{% endblock %}
+{% block main %}
+<h1>Clinician day</h1>
+<form method="get" action="/day">
+  <label for="clinician">Clinician</label>
+  <select id="clinician" name="clinician">
+    {% for c in clinicians %}
+    <option value="{{ c.id }}"{% if c.id == clinician %} selected{% endif %}>{{ c.name }}</option>
+    {% endfor %}
+  </select>
+  <label for="date">Date</label>
+  <input id="date" type="date" name="date" value="{{ date or '' }}">
+  <button type="submit">Show</button>
+</form>
+{% if clinician and date %}
+  <h2>{{ clinician_name or clinician }}, {{ date }}</h2>
+  {% if rows %}
+  <table>
+    <thead><tr><th>Start</th><th>ID</th><th>Patient</th><th>Duration</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td><time datetime="{{ r.start }}">{{ r.start | pretty }}</time></td>
+        <td class="appt-id"><a href="/appointments/{{ r.id }}">{{ r.id }}</a></td>
+        <td>{{ r.patient }}</td>
+        <td>{{ r.duration_min }} min</td>
+        <td>{{ r.status }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No appointments</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

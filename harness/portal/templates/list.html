@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Appointments{% endblock %}
+{% block main %}
+<h1>Appointments</h1>
+{% if updated %}<p class="banner" role="status">Appointment updated</p>{% endif %}
+<table>
+  <thead>
+    <tr><th>ID</th><th>Patient</th><th>Clinician</th><th>Start</th><th>Duration</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td class="appt-id"><a href="/appointments/{{ r.id }}">{{ r.id }}</a></td>
+      <td>{{ r.patient }}</td>
+      <td>{{ r.clinician }}</td>
+      <td><time datetime="{{ r.start }}">{{ r.start | pretty }}</time></td>
+      <td>{{ r.duration_min }} min</td>
+      <td>{{ r.status }}</td>
+      <td>
+        <form class="inline" method="get" action="/reschedule">
+          <input type="hidden" name="appointment_id" value="{{ r.id }}">
+          <button type="submit">Reschedule</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
