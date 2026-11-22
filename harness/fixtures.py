@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30))
 UPDATED_AT = "2026-11-20T09:00:00+05:30"   # fixed, so seeding is byte-deterministic
-BUILT_DESIGNS = {"C0", "R1", "S1"}
+BUILT_DESIGNS = {"C0", "R1", "O1", "O2", "I1", "S1", "B1"}
 
 # Synthetic names only. Never real patient data.
 PATIENT_NAMES = [
@@ -96,13 +96,34 @@ def _seeded(design: str, seed: int) -> dict:
     return _assemble(request, rows)
 
 
+def _extra_row(design: str, seed: int, fx: dict, role_clinician: dict, canonical: tuple) -> dict:
+    """One more booking at the requested start (O1: same clinician; O2: the other clinician)."""
+    used_ids = {r["id"] for r in fx["rows"]}
+    used_pids = {r["patient_id"] for r in fx["rows"]}
+    used_names = {r["patient"] for r in fx["rows"]}
+    if seed == 0:
+        appt_id, patient = canonical
+    else:
+        rng = random.Random(f"{design}:{seed}:extra")
+        appt_id = next(i for i in (f"A-{n}" for n in rng.sample(range(100, 1000), 50)) if i not in used_ids)
+        pid = next(i for i in (f"P-{n}" for n in rng.sample(range(10, 100), 50)) if i not in used_pids)
+        patient = (pid, rng.choice([n for n in PATIENT_NAMES if n not in used_names]))
+    clinician = (role_clinician["clinician_id"], role_clinician["clinician"])
+    return _row(appt_id, patient, clinician, fx["request"]["to"])
+
+
 def _faults(design: str, fx: dict) -> dict:
     """Evaluator-only fault description. Never reaches FlightDeck."""
-    target, decoy = fx["rows"][0]["id"], fx["rows"][1]["id"]
+    target, decoy, out_of_scope = (fx["rows"][i]["id"] for i in range(3))
     if design == "R1":   # rows swapped in the browser; the DB is untouched
         return {"browser_mutation": "swap_first_two_rows"}
     if design == "S1":   # backend writes the decoy instead of the target
         return {"portal_flags": {"miswrite": {"from": target, "to": decoy}}}
+    if design == "I1":   # detail template has no clinician field, before or after
+        return {"portal_flags": {"hide_detail_fields": ["clinician"]}}
+    if design == "B1":   # backend also changes an out-of-scope record
+        return {"portal_flags": {"collateral_write": {"on": target, "id": out_of_scope,
+                                                      "set": {"status": "cancelled"}}}}
     return {}
 
 
@@ -110,5 +131,11 @@ def make_fixture(design: str, seed: int) -> dict:
     if design not in BUILT_DESIGNS:
         raise ValueError(f"design {design!r} not built yet")
     fx = _canonical() if seed == 0 else _seeded(design, seed)
+    if design == "O1":   # destination slot already booked for the same clinician
+        extra = _extra_row(design, seed, fx, fx["rows"][0], ("A-117", ("P-34", "Kiran M.")))
+        fx = _assemble(fx["request"], fx["rows"] + [extra])
+    elif design == "O2":   # same time, different clinician: not a conflict
+        extra = _extra_row(design, seed, fx, fx["rows"][2], ("A-118", ("P-35", "Divya R.")))
+        fx = _assemble(fx["request"], fx["rows"] + [extra])
     fx["faults"] = _faults(design, fx)
     return fx

@@ -17,7 +17,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 IST = timezone(timedelta(hours=5, minutes=30))
-KNOWN_FLAGS = {"miswrite"}   # Day 5 adds I1 / B1
+KNOWN_FLAGS = {"miswrite", "hide_detail_fields", "collateral_write"}
+DETAIL_FIELDS = {"patient", "clinician", "start", "duration_min", "status", "updated_at"}
 NEW_START = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -52,6 +53,14 @@ def load_flags(path: Path | None) -> dict:
     mw = flags.get("miswrite")
     if mw is not None and not (isinstance(mw, dict) and set(mw) == {"from", "to"}):
         raise UnknownFlagError("miswrite flag must be {'from': id, 'to': id}")
+    hidden = flags.get("hide_detail_fields")
+    if hidden is not None and not (isinstance(hidden, list) and set(hidden) <= DETAIL_FIELDS):
+        raise UnknownFlagError(f"hide_detail_fields must be a list drawn from {sorted(DETAIL_FIELDS)}")
+    cw = flags.get("collateral_write")
+    if cw is not None and not (isinstance(cw, dict) and set(cw) == {"on", "id", "set"}
+                               and isinstance(cw["set"], dict) and set(cw["set"]) == {"status"}
+                               and cw["set"]["status"] in {"booked", "cancelled"}):
+        raise UnknownFlagError("collateral_write must be {'on': id, 'id': id, 'set': {'status': ...}}")
     return flags
 
 
@@ -131,7 +140,8 @@ def create_app(db_path: str | Path, flags_path: str | Path | None = None) -> Fas
         start = datetime.fromisoformat(new_start).replace(tzinfo=IST).isoformat()
         now = datetime.now(IST).isoformat(timespec="seconds")
         # S1 fault: the backend writes a different row but reports success as usual.
-        mw = load_flags(flags_file).get("miswrite")
+        flags = load_flags(flags_file)
+        mw = flags.get("miswrite")
         write_id = mw["to"] if mw and mw["from"] == appointment_id else appointment_id
         # Deliberately no slot-conflict check: double-booking is possible.
         with closing(connect()) as con, con:
@@ -139,6 +149,11 @@ def create_app(db_path: str | Path, flags_path: str | Path | None = None) -> Fas
                         (start, now, write_id))
             con.execute("INSERT INTO notifications (appt_id, kind, at) VALUES (?, 'rescheduled', ?)",
                         (write_id, now))
+            # B1 fault: the same request also changes an out-of-scope record.
+            cw = flags.get("collateral_write")
+            if cw and cw["on"] == appointment_id:
+                con.execute("UPDATE appointments SET status = ?, updated_at = ? WHERE id = ?",
+                            (cw["set"]["status"], now, cw["id"]))
         return RedirectResponse("/appointments?msg=updated", status_code=303)
 
     return app

@@ -2,13 +2,14 @@
 {% block title %}Appointment {{ a.id }}{% endblock %}
 {% block main %}
 <h1>Appointment <span class="appt-id">{{ a.id }}</span></h1>
+{% set hidden = flags.get("hide_detail_fields", []) %}
 <dl>
   <dt>ID</dt><dd class="appt-id">{{ a.id }}</dd>
-  <dt>Patient</dt><dd>{{ a.patient }}</dd>
-  <dt>Clinician</dt><dd>{{ a.clinician }}</dd>
-  <dt>Start</dt><dd><time datetime="{{ a.start }}">{{ a.start | pretty }}</time></dd>
-  <dt>Duration</dt><dd>{{ a.duration_min }} min</dd>
-  <dt>Status</dt><dd>{{ a.status }}</dd>
-  <dt>Last updated</dt><dd><time datetime="{{ a.updated_at }}">{{ a.updated_at | pretty }}</time></dd>
+  {% if "patient" not in hidden %}<dt>Patient</dt><dd>{{ a.patient }}</dd>{% endif %}
+  {% if "clinician" not in hidden %}<dt>Clinician</dt><dd>{{ a.clinician }}</dd>{% endif %}
+  {% if "start" not in hidden %}<dt>Start</dt><dd><time datetime="{{ a.start }}">{{ a.start | pretty }}</time></dd>{% endif %}
+  {% if "duration_min" not in hidden %}<dt>Duration</dt><dd>{{ a.duration_min }} min</dd>{% endif %}
+  {% if "status" not in hidden %}<dt>Status</dt><dd>{{ a.status }}</dd>{% endif %}
+  {% if "updated_at" not in hidden %}<dt>Last updated</dt><dd><time datetime="{{ a.updated_at }}">{{ a.updated_at | pretty }}</time></dd>{% endif %}
 </dl>
 {% endblock %}
