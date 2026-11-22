@@ -1,0 +1,21 @@
+{
+  "contract_id": "ctr-A-104-001",
+  "task": "reschedule_appointment",
+  "target": { "id": "A-104" },
+  "change": [
+    { "field": "start", "from": "2026-12-15T16:00:00+05:30", "to": "2026-12-17T11:00:00+05:30" }
+  ],
+  "preserve": ["clinician", "patient", "duration_min", "status"],
+  "if_blocked": [
+    { "when": "destination_occupied", "then": "refuse_no_change", "source": "operator" },
+    { "when": "target_not_found", "then": "stop_and_ask", "source": "policy" },
+    { "when": "start_state_differs", "then": "stop_and_ask", "source": "policy" },
+    { "when": "readback_unavailable", "then": "stop_and_ask", "source": "policy" }
+  ],
+  "scope": { "checks": ["target", "collateral_candidates", "destination_slot", "origin_slot"] },
+  "incidental": [
+    { "effect": "'Last updated' time on the detail page changes", "visible_in_ui": true, "treatment": "ignore" },
+    { "effect": "Patient notification is sent", "visible_in_ui": false, "treatment": "report_if_seen" }
+  ],
+  "confirmed": { "by": "operator", "at": "2026-11-27T10:05:00+05:30" }
+}

@@ -1,0 +1,85 @@
+{
+  "receipt_id": "rcpt-5c1e9a7d",
+  "run_id": "run-5c1e9a7d",
+  "contract_id": "ctr-A-104-001",
+  "arm": "A1_rules",
+  "requested": [
+    "Change: A-104 start Tue 15 Dec 16:00 -> Thu 17 Dec 11:00",
+    "Preserve: clinician, patient, duration_min, status",
+    "If blocked: Dr. Rao busy Thu 17 Dec 11:00 -> change nothing and report; target missing, start already moved, or no readback -> stop and ask"
+  ],
+  "action": {
+    "outcome": "write_submitted",
+    "writes_submitted": 1,
+    "portal_message": "Appointment updated",
+    "guard_events": [],
+    "repair": null
+  },
+  "claim": "requested_change_applied",
+  "checks": [
+    {
+      "check": "target",
+      "subject": "A-104",
+      "via": "search_detail",
+      "displayed_id": "A-104",
+      "expected": { "start": "2026-12-17T11:00:00+05:30", "clinician": "Dr. Rao", "patient": "Asha N.", "duration_min": 30, "status": "booked" },
+      "observed": { "start": "2026-12-15T16:00:00+05:30", "clinician": "Dr. Rao", "patient": "Asha N.", "duration_min": 30, "status": "booked" },
+      "result": "fail",
+      "reads": 8,
+      "evidence": ["runs/5c1e9a7d/verify-target-read8.png"]
+    },
+    {
+      "check": "collateral_candidates",
+      "subject": "IDs the recorded locators resolved to before the click",
+      "via": "pre_action_snapshot",
+      "displayed_id": null,
+      "expected": {},
+      "observed": { "resolved_ids": ["A-104"] },
+      "result": "pass",
+      "reads": 1,
+      "evidence": ["runs/5c1e9a7d/pre-action-list.png"]
+    },
+    {
+      "check": "destination_slot",
+      "subject": "Dr. Rao, Thu 17 Dec 11:00",
+      "via": "day_view",
+      "displayed_id": null,
+      "expected": { "occupants": ["A-104"] },
+      "observed": { "occupants": ["A-105"], "occupants_before_action": [] },
+      "result": "fail",
+      "reads": 1,
+      "evidence": ["runs/5c1e9a7d/pre-day-thu-rao.png", "runs/5c1e9a7d/post-day-thu-rao.png"]
+    },
+    {
+      "check": "origin_slot",
+      "subject": "Dr. Rao, Tue 15 Dec 16:00",
+      "via": "day_view",
+      "displayed_id": null,
+      "expected": { "occupants": [] },
+      "observed": { "occupants": ["A-104"] },
+      "result": "fail",
+      "reads": 1,
+      "evidence": ["runs/5c1e9a7d/post-day-tue-rao.png"]
+    }
+  ],
+  "affected_records": [
+    {
+      "id": "A-105",
+      "change_observed": "start Tue 15 Dec 16:30 -> Thu 17 Dec 11:00",
+      "evidence": [
+        "runs/5c1e9a7d/pre-action-list.png (row shows A-105 at Tue 15 Dec 16:30)",
+        "runs/5c1e9a7d/post-day-thu-rao.png (A-105 in the 11:00 slot, empty before the action)",
+        "runs/5c1e9a7d/post-detail-A-105.png (detail page displays ID A-105, start Thu 17 Dec 11:00)"
+      ]
+    }
+  ],
+  "verdict": "observed_mismatch",
+  "unknown": [
+    "Records outside scope: only A-104, recorded-locator hits, and Dr. Rao's Thu 11:00 and Tue 16:00 slots were checked",
+    "How many writes the portal performed: no history view exists",
+    "Whether the patient notification was sent: not shown in the UI"
+  ],
+  "summary": "Requested move failed. A-104 is still Tue 15 Dec 16:00 after 8 fresh reads over 8 s, although the portal said 'Appointment updated'. A-105 now holds Dr. Rao's Thu 17 Dec 11:00 slot, which was empty before the action. No retry was made.",
+  "runtime_ms": 14820,
+  "sealed_at": "2026-12-02T15:42:10+05:30"
+}
