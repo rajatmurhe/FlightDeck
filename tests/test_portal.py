@@ -1,41 +1,15 @@
 """Day-2 gate: the portal, driven through a real browser (evaluator side)."""
 import json
-import socket
 import sqlite3
-import threading
-import time
-from contextlib import contextmanager
 
 import pytest
-import uvicorn
 from playwright.sync_api import sync_playwright
 
 from harness.fixtures import make_fixture
-from harness.portal import create_app
+from harness.portal.server import running as serve
 from harness.portal.app import UnknownFlagError, load_flags
 from harness.reset import reset
 from harness.score import score
-
-
-@contextmanager
-def serve(db_path, flags_path=None):
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(create_app(db_path, flags_path), host="127.0.0.1",
-                                           port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.time() + 10
-    while not server.started:
-        if time.time() > deadline:
-            raise RuntimeError("portal did not start")
-        time.sleep(0.02)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)
 
 
 @pytest.fixture(scope="module")
