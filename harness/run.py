@@ -19,6 +19,8 @@ from pathlib import Path
 from playwright.sync_api import Browser, sync_playwright
 
 from flightdeck.contract import contract_for, load_base
+from flightdeck.model_client import config_from_env
+from flightdeck.model_repair import LiveProposer
 from flightdeck.run import run_case
 from harness.fixtures import make_fixture
 from harness.mutations import install
@@ -37,8 +39,16 @@ def new_run_id() -> str:
     return "run-" + secrets.token_hex(4)
 
 
+def live_proposer():
+    """A2's model, configured from the environment (see flightdeck/model_client.py)."""
+    return LiveProposer(config_from_env())
+
+
 def run(design: str, seed: int, arm: str = "A0", workdir: str | Path | None = None,
-        runs_dir: str | Path = "runs", settle: float = SETTLE_S, browser: Browser | None = None) -> dict:
+        runs_dir: str | Path = "runs", settle: float = SETTLE_S, browser: Browser | None = None,
+        proposer=None) -> dict:
+    if arm == "A2" and proposer is None:
+        proposer = live_proposer()   # fails fast if no model is configured
     state = Path(workdir) if workdir is not None else DEFAULT_WORKDIR
     runs = Path(runs_dir)
     runs.mkdir(parents=True, exist_ok=True)
@@ -65,7 +75,7 @@ def run(design: str, seed: int, arm: str = "A0", workdir: str | Path | None = No
         if arm != "A0":   # repairs are trialled on sandbox seeds 101+ of the same design
             open_sandbox = SandboxProvider(design, browser, state / "sandbox").opener()
         out = run_case(ctx.new_page(), url, run_id, contract, script, request, runs, arm=arm,
-                       open_sandbox=open_sandbox)
+                       open_sandbox=open_sandbox, proposer=proposer if arm == "A2" else None)
         if out["write_at"] is not None:   # the portal keeps serving during the settle
             time.sleep(max(0.0, settle - (time.monotonic() - out["write_at"])))
 
@@ -81,7 +91,7 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m harness.run")
     ap.add_argument("--design", required=True)
     ap.add_argument("--seed", type=int, required=True)
-    ap.add_argument("--arm", default="A1", choices=["A0", "A1"])
+    ap.add_argument("--arm", default="A1", choices=["A0", "A1", "A2"])
     ap.add_argument("--workdir", default=None)
     ap.add_argument("--runs-dir", default="runs")
     ap.add_argument("--settle", type=float, default=SETTLE_S)

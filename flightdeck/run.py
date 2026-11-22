@@ -16,6 +16,7 @@ from flightdeck.checks import Decision, prewrite
 from flightdeck.contract import requested_lines, short
 from flightdeck.executor import replay
 from flightdeck.ladder import BUDGET, propose
+from flightdeck.model_repair import Proposer, propose_with_model
 from flightdeck.repair import trial
 from flightdeck.sandbox import OpenSandbox
 from flightdeck.receipt_rules import CHANGE_CLAIM, compute_verdict, seal
@@ -25,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RECEIPT_SCHEMA = ROOT / "schemas" / "verifier-receipt.schema.json"
 IST = timezone(timedelta(hours=5, minutes=30))
 DEFAULT_TIMEOUT_MS = 5000
-ARMS = {"A0": "A0_naive", "A1": "A1_rules"}
+ARMS = {"A0": "A0_naive", "A1": "A1_rules", "A2": "A2_rules_model"}
 
 
 def _unknown(contract: dict, pre, target: str) -> list[str]:
@@ -108,10 +109,34 @@ def _rules_repair(page: Page, base: str, contract: dict, script: dict, request: 
     return block, accepted
 
 
+def _model_repair(page: Page, base: str, contract: dict, script: dict, request: dict,
+                  open_sandbox: OpenSandbox, run_dir: Path, rules_block: dict | None, proposer: Proposer,
+                  cache_dir: Path, run_id: str) -> tuple[dict, dict | None]:
+    """A2 only: one model proposal after the ladder failed, trialled like any other candidate."""
+    tried = rules_block["candidates_tried"] if rules_block else 0
+    m = propose_with_model(page, base, script, request, proposer, cache_dir, run_id, run_dir)
+    accepted, runs = None, tried
+    if m["candidate"] and tried < BUDGET:
+        runs += 1
+        if trial(m["candidate"], open_sandbox, contract, script, run_dir, runs)["accepted"]:
+            accepted = m["candidate"]
+    target = request["target_id"]
+    block = {"proposer": "model", "candidates_tried": max(1, tried + 1), "accepted": accepted is not None,
+             "applied_actions": [f"click '{n}' in the row showing {target}" for n in accepted["clicks"]]
+             if accepted else [],
+             "sandbox_runs": runs, "model_calls": m["model_calls"], "model_cost_usd": m["cost_usd"]}
+    return block, accepted
+
+
 def run_case(page: Page, base_url: str, run_id: str, contract: dict, script: dict, request: dict,
-             runs_dir: str | Path, arm: str = "A0", open_sandbox: OpenSandbox | None = None) -> dict:
+             runs_dir: str | Path, arm: str = "A0", open_sandbox: OpenSandbox | None = None,
+             proposer: Proposer | None = None) -> dict:
     if arm not in ARMS:
         raise ValueError(f"arm {arm!r} not built yet")
+    if arm == "A2" and proposer is None:
+        raise ValueError("A2 needs a model proposer")
+    if arm != "A2":
+        proposer = None   # rule 9: no model calls in A0 or A1
     t0 = time.monotonic()
     base = base_url.rstrip("/")
     hexid = run_id.removeprefix("run-")
@@ -130,6 +155,9 @@ def run_case(page: Page, base_url: str, run_id: str, contract: dict, script: dic
     if (arm != "A0" and not decision and action["writes_submitted"] == 0
             and action["failed_row_step"] and open_sandbox is not None):
         repair, accepted = _rules_repair(page, base, contract, script, request, open_sandbox, ev.dir)
+        if not accepted and proposer is not None:   # the ladder failed before any write
+            repair, accepted = _model_repair(page, base, contract, script, request, open_sandbox, ev.dir,
+                                             repair, proposer, Path(runs_dir) / "model_cache", run_id)
         if accepted:   # the run's one write, through the repaired step; never retried
             first_guard_events = action["guard_events"]
             action = replay(page, base, script, request, guard=True, repair=accepted)
@@ -145,9 +173,12 @@ def run_case(page: Page, base_url: str, run_id: str, contract: dict, script: dic
         outcome = "stopped_before_write"
     why = "" if wrote else _why_no_write(decision, action["guard_events"], target, action["error"])
     if repair and not wrote:
-        why += f" {repair['candidates_tried']} rules repair(s) tried on a staging copy; none was accepted."
+        who = "rules and model" if repair["proposer"] == "model" else "rules"
+        why += (f" {repair['candidates_tried']} {who} repair candidate(s) considered, "
+                f"{repair['sandbox_runs']} tried on a staging copy; none was accepted.")
     elif repair and wrote:
-        why = (f"Repaired before the write ({'; '.join(repair['applied_actions'])}), validated on a "
+        by = "proposed by the model and " if repair["proposer"] == "model" else ""
+        why = (f"Repaired before the write ({'; '.join(repair['applied_actions'])}), {by}validated on a "
                "staging copy.")
     elif not wrote and not decision and action.get("failed_row_step") and arm != "A0":
         why += " The rules ladder found no candidate repair."

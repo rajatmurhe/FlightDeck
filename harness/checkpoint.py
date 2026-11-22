@@ -23,7 +23,8 @@ CORE = ["C0", "R1", "O1", "O2", "I1", "S1", "B1"]
 DEV_SEEDS = [1, 2, 3]
 
 
-def checkpoint(seeds: list[int], workdir: Path, runs_dir: Path, designs: list[str] = CORE) -> list[dict]:
+def checkpoint(seeds: list[int], workdir: Path, runs_dir: Path, designs: list[str] = CORE,
+               arm: str = "A1", proposer=None) -> list[dict]:
     labels = load_labels()
     rows = []
     with sync_playwright() as p:
@@ -31,20 +32,22 @@ def checkpoint(seeds: list[int], workdir: Path, runs_dir: Path, designs: list[st
         for design in designs:
             entry = labels[design]
             for seed in seeds:
-                out = run(design, seed, "A1", workdir, runs_dir, browser=browser)
+                out = run(design, seed, arm, workdir, runs_dir, browser=browser, proposer=proposer)
                 r = out["receipt"]
                 j = judge(entry, out["fixture"], r)
                 fa = in_scope_false_approval(out["fixture"], r, out["report"])
                 rep = r["action"]["repair"]
-                rows.append({"design": design, "seed": seed, "arm": "A1", "run_id": r["run_id"],
+                rows.append({"design": design, "seed": seed, "arm": arm, "run_id": r["run_id"],
                              "outcome": r["action"]["outcome"], "verdict": r["verdict"],
                              "named": [a["id"] for a in r["affected_records"]],
-                             "repair": (f"{'accepted' if rep['accepted'] else 'rejected'} "
+                             "repair": (f"{rep['proposer']} {'accepted' if rep['accepted'] else 'rejected'} "
                                         f"{rep['candidates_tried']}/{rep['sandbox_runs']}") if rep else "-",
+                             "model_calls": rep["model_calls"] if rep else 0,
+                             "model_cost_usd": rep["model_cost_usd"] if rep else 0,
                              "false_approval": fa, **j})
                 if fa:
                     rows[-1].update(ok=False, why="in-scope false approval")
-                if "fixture_check" in entry:
+                if "fixture_check" in entry and arm == "A1":
                     a0 = run(design, seed, "A0", workdir, runs_dir, browser=browser)
                     fc = fixture_check(entry, a0["fixture"], a0["report"])
                     rows.append({"design": design, "seed": seed, "arm": "A0 fixture check",
@@ -62,23 +65,31 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m harness.checkpoint")
     ap.add_argument("--seeds", type=int, nargs="+", default=DEV_SEEDS)
     ap.add_argument("--designs", nargs="+", default=CORE)
+    ap.add_argument("--arm", default="A1", choices=["A1", "A2"])
     ap.add_argument("--workdir", default=None)
     ap.add_argument("--runs-dir", default="runs")
     args = ap.parse_args(argv)
     if any(s >= 11 for s in args.seeds):
         sys.exit("the checkpoint uses dev seeds only (eval seeds 11-13 run once, on Day 9)")
     state = Path(args.workdir) if args.workdir else DEFAULT_WORKDIR
-    rows = checkpoint(args.seeds, state, Path(args.runs_dir), args.designs)
+    proposer = None
+    if args.arm == "A2":
+        from harness.run import live_proposer
+        proposer = live_proposer()
+    rows = checkpoint(args.seeds, state, Path(args.runs_dir), args.designs, args.arm, proposer)
 
     print(f"{'design':<7}{'seed':<5}{'arm':<18}{'outcome':<22}{'verdict':<23}{'named':<8}"
-          f"{'repair (tried/sandbox)':<24}ok")
+          f"{'repair (tried/sandbox)':<30}ok")
     for r in rows:
         flag = "yes" + (" (manual intervention)" if r["manual_intervention"] else "")
         print(f"{r['design']:<7}{r['seed']:<5}{r['arm']:<18}{r['outcome']:<22}{r['verdict']:<23}"
-              f"{','.join(r['named']) or '-':<8}{r['repair']:<24}{flag if r['ok'] else 'NO  ' + r['why']}")
+              f"{','.join(r['named']) or '-':<8}{r['repair']:<30}{flag if r['ok'] else 'NO  ' + r['why']}")
     passed = sum(r["ok"] for r in rows)
     fas = sum(r["false_approval"] for r in rows)
-    print(f"\n{passed}/{len(rows)} as frozen; in-scope false approvals: {fas}")
+    calls = sum(r.get("model_calls", 0) for r in rows)
+    cost = sum(r.get("model_cost_usd", 0) for r in rows)
+    print(f"\n{passed}/{len(rows)} as frozen; in-scope false approvals: {fas}; "
+          f"model calls: {calls}, cost ${cost:.4f}")
     (state / "checkpoint.json").write_text(json.dumps(rows, indent=2) + "\n")
     sys.exit(0 if passed == len(rows) else 1)
 
