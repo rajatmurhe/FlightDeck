@@ -6,8 +6,10 @@ most one write. It exists to produce the real wrong writes the verifier must cat
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
@@ -37,36 +39,42 @@ def replay_a0(page: Page, base_url: str, script: dict, request: dict) -> dict:
     base = base_url.rstrip("/")
     steps_run: list[str] = []
     writes = 0
-    success_seen = False
+    write_at: float | None = None
+    message: str | None = None
+    error: str | None = None
 
-    for step in script["steps"]:
-        action = step["action"]
-        if action == "goto":
-            page.goto(base + step["path"])
-        elif action == "click":
-            scope = page
-            if "row" in step:   # positional: whatever row sits at the recorded index
-                scope = page.locator(step["row"]["selector"]).nth(step["row"]["index"])
-            control = scope.get_by_role(step["role"], name=step["name"], exact=True)
-            if step.get("submits_write"):
-                if writes:
-                    raise OneWriteViolation("a second submit was attempted")
-                writes += 1
-                control.click()
-                page.wait_for_load_state()
+    try:
+        for step in script["steps"]:
+            action = step["action"]
+            if action == "goto":
+                page.goto(base + step["path"])
+            elif action == "click":
+                scope = page
+                if "row" in step:   # positional: whatever row sits at the recorded index
+                    scope = page.locator(step["row"]["selector"]).nth(step["row"]["index"])
+                control = scope.get_by_role(step["role"], name=step["name"], exact=True)
+                if step.get("submits_write"):
+                    if writes:
+                        raise OneWriteViolation("a second submit was attempted")
+                    control.click()
+                    writes, write_at = 1, time.monotonic()
+                    page.wait_for_load_state()
+                else:
+                    control.click()
+            elif action == "fill":
+                page.fill(step["selector"], _value(step["value"], request))
+            elif action == "expect_text":
+                try:
+                    page.get_by_text(step["text"], exact=True).wait_for(timeout=SUCCESS_WAIT_MS)
+                    message = step["text"]
+                except PlaywrightTimeout:
+                    message = None
             else:
-                control.click()
-        elif action == "fill":
-            page.fill(step["selector"], _value(step["value"], request))
-        elif action == "expect_text":
-            try:
-                page.get_by_text(step["text"], exact=True).wait_for(timeout=SUCCESS_WAIT_MS)
-                success_seen = True
-            except PlaywrightTimeout:
-                success_seen = False
-        else:
-            raise ValueError(f"unknown step action {action!r}")
-        steps_run.append(action)
+                raise ValueError(f"unknown step action {action!r}")
+            steps_run.append(action)
+    except PlaywrightError as exc:   # a missing control ends the run; never retried
+        error = str(exc).splitlines()[0]
 
-    return {"steps_run": steps_run, "writes_submitted": writes,
-            "success_text_seen": success_seen, "final_url": page.url}
+    return {"steps_run": steps_run, "writes_submitted": writes, "write_at": write_at,
+            "portal_message": message, "success_text_seen": message is not None,
+            "error": error, "final_url": page.url}
