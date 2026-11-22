@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flightdeck/intent-contract/0.1",
+  "title": "FlightDeck intent contract v0.1 (reschedule_appointment)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_id", "task", "target", "change", "preserve", "if_blocked", "scope", "incidental", "confirmed"],
+  "properties": {
+    "contract_id": { "type": "string", "minLength": 1 },
+    "task": { "const": "reschedule_appointment" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": { "id": { "type": "string", "pattern": "^A-[0-9]+$" } }
+    },
+    "change": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "from", "to"],
+        "properties": {
+          "field": { "const": "start" },
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "preserve": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["clinician", "patient", "duration_min", "status"] }
+    },
+    "if_blocked": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["when", "then", "source"],
+        "properties": {
+          "when": { "enum": ["destination_occupied", "target_not_found", "start_state_differs", "readback_unavailable"] },
+          "then": { "enum": ["refuse_no_change", "stop_and_ask"] },
+          "source": { "enum": ["operator", "policy"] }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checks"],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["target", "collateral_candidates", "destination_slot", "origin_slot"] },
+          "contains": { "const": "target" }
+        }
+      }
+    },
+    "incidental": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["effect", "visible_in_ui", "treatment"],
+        "properties": {
+          "effect": { "type": "string" },
+          "visible_in_ui": { "type": "boolean" },
+          "treatment": { "enum": ["ignore", "report_if_seen", "required"] }
+        },
+        "if": { "properties": { "treatment": { "const": "required" } }, "required": ["treatment"] },
+        "then": { "properties": { "visible_in_ui": { "const": true } } }
+      }
+    },
+    "confirmed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["by", "at"],
+      "properties": {
+        "by": { "type": "string" },
+        "at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

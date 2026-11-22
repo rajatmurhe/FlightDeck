@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "flightdeck/verifier-receipt/0.2",
+  "title": "FlightDeck verifier receipt v0.2",
+  "description": "Shape only. Evidence rules (required checks, target readback, verdict) live in flightdeck/receipt_rules.py: validate_receipt(contract, receipt).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["receipt_id", "run_id", "contract_id", "arm", "requested", "action", "claim", "checks", "affected_records", "verdict", "unknown", "summary", "runtime_ms", "sealed_at"],
+  "properties": {
+    "receipt_id": { "type": "string", "pattern": "^rcpt-[0-9a-f]{8,}$", "description": "Opaque. Never encodes design, seed or label." },
+    "run_id": { "type": "string", "pattern": "^run-[0-9a-f]{8,}$", "description": "Opaque. The scorer joins design and seed after sealing." },
+    "contract_id": { "type": "string" },
+    "arm": { "enum": ["A0_naive", "A1_rules", "A2_rules_model"] },
+    "requested": {
+      "description": "The contract's three confirmed lines: Change, Preserve, If blocked.",
+      "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "string" }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "writes_submitted", "portal_message", "guard_events", "repair"],
+      "properties": {
+        "outcome": { "enum": ["write_submitted", "refused_no_change", "stopped_before_write"] },
+        "writes_submitted": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "portal_message": { "type": ["string", "null"] },
+        "guard_events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["step", "expected_id", "displayed_id", "action"],
+            "properties": {
+              "step": { "type": "integer" },
+              "expected_id": { "type": "string" },
+              "displayed_id": { "type": ["string", "null"] },
+              "action": { "const": "blocked_click" }
+            }
+          }
+        },
+        "repair": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["proposer", "candidates_tried", "accepted", "applied_actions", "sandbox_runs", "model_calls", "model_cost_usd"],
+              "properties": {
+                "proposer": { "enum": ["rules", "model"] },
+                "candidates_tried": { "type": "integer", "minimum": 1, "maximum": 3 },
+                "accepted": { "type": "boolean" },
+                "applied_actions": { "type": "array", "maxItems": 2, "items": { "type": "string" } },
+                "sandbox_runs": { "type": "integer", "minimum": 0 },
+                "model_calls": { "type": "integer", "minimum": 0 },
+                "model_cost_usd": { "type": "number", "minimum": 0 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "claim": {
+      "description": "What the verdict is about: the requested change (after a write) or no change (after a refusal or stop).",
+      "enum": ["requested_change_applied", "no_change"]
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "subject", "via", "displayed_id", "expected", "observed", "result", "reads", "evidence"],
+        "properties": {
+          "check": { "enum": ["target", "collateral_candidates", "destination_slot", "origin_slot"] },
+          "subject": { "type": "string" },
+          "via": { "enum": ["search_detail", "detail_url", "day_view", "pre_action_snapshot"] },
+          "displayed_id": { "type": ["string", "null"] },
+          "expected": { "type": "object" },
+          "observed": { "type": "object" },
+          "result": { "enum": ["pass", "fail", "unreadable"] },
+          "reads": { "type": "integer", "minimum": 0 },
+          "evidence": { "type": "array", "items": { "type": "string" } }
+        },
+        "if": { "properties": { "via": { "const": "pre_action_snapshot" } }, "required": ["via"] },
+        "then": { "properties": { "check": { "const": "collateral_candidates" }, "result": { "enum": ["pass", "unreadable"] } } }
+      }
+    },
+    "affected_records": {
+      "description": "Other records FlightDeck claims changed. Only with independent UI evidence; never inferred.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "change_observed", "evidence"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^A-[0-9]+$" },
+          "change_observed": { "type": "string" },
+          "evidence": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    },
+    "verdict": { "enum": ["verified_within_scope", "observed_mismatch", "unable_to_verify"] },
+    "unknown": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "summary": { "type": "string", "maxLength": 400 },
+    "runtime_ms": { "type": "integer", "minimum": 0 },
+    "sealed_at": { "type": "string", "format": "date-time" }
+  },
+  "if": { "properties": { "action": { "properties": { "outcome": { "const": "write_submitted" } } } } },
+  "then": {
+    "properties": {
+      "action": { "properties": { "writes_submitted": { "const": 1 } } },
+      "claim": { "const": "requested_change_applied" }
+    }
+  },
+  "else": {
+    "properties": {
+      "action": { "properties": { "writes_submitted": { "const": 0 } } },
+      "claim": { "const": "no_change" }
+    }
+  }
+}
