@@ -1,8 +1,9 @@
 """Executors (runtime, browser-only).
 
-A0 is the naive reference arm: it replays the recorded script literally. It clicks the
-recorded row position, never checks the ID anchor, runs no pre-write checks, and submits at
-most one write. It exists to produce the real wrong writes the verifier must catch.
+replay() runs the recorded script. A0 (naive reference arm) replays it literally: it clicks the
+recorded row position, never checks the ID anchor, and submits at most one write. A1 adds the ID
+guard: before a row click it reads the row's anchor cell and never clicks a row whose displayed
+ID differs from the target. Relocating to another row is a repair (Day 6), not a guard action.
 """
 from __future__ import annotations
 
@@ -36,15 +37,20 @@ def _value(template: str, request: dict) -> str:
 
 
 def replay_a0(page: Page, base_url: str, script: dict, request: dict) -> dict:
+    return replay(page, base_url, script, request, guard=False)
+
+
+def replay(page: Page, base_url: str, script: dict, request: dict, guard: bool) -> dict:
     base = base_url.rstrip("/")
     steps_run: list[str] = []
     writes = 0
     write_at: float | None = None
     message: str | None = None
     error: str | None = None
+    guard_events: list[dict] = []
 
     try:
-        for step in script["steps"]:
+        for number, step in enumerate(script["steps"], start=1):
             action = step["action"]
             if action == "goto":
                 page.goto(base + step["path"])
@@ -52,6 +58,13 @@ def replay_a0(page: Page, base_url: str, script: dict, request: dict) -> dict:
                 scope = page
                 if "row" in step:   # positional: whatever row sits at the recorded index
                     scope = page.locator(step["row"]["selector"]).nth(step["row"]["index"])
+                    if guard:
+                        anchor = scope.locator(step.get("anchor", {}).get("selector", "td.appt-id"))
+                        shown = anchor.inner_text().strip() if anchor.count() == 1 else None
+                        if shown != request["target_id"]:
+                            guard_events.append({"step": number, "expected_id": request["target_id"],
+                                                 "displayed_id": shown, "action": "blocked_click"})
+                            break   # never click it; the run ends before any write
                 control = scope.get_by_role(step["role"], name=step["name"], exact=True)
                 if step.get("submits_write"):
                     if writes:
@@ -77,4 +90,4 @@ def replay_a0(page: Page, base_url: str, script: dict, request: dict) -> dict:
 
     return {"steps_run": steps_run, "writes_submitted": writes, "write_at": write_at,
             "portal_message": message, "success_text_seen": message is not None,
-            "error": error, "final_url": page.url}
+            "error": error, "guard_events": guard_events, "final_url": page.url}
