@@ -28,6 +28,7 @@ class ResetPaths:
     pristine: Path
     live: Path
     fixture: Path
+    flags: Path
 
 
 class StalePristineError(RuntimeError):
@@ -63,7 +64,8 @@ def reset(design: str, seed: int, workdir: str | os.PathLike | None = None,
     base = Path(workdir) if workdir is not None else DEFAULT_WORKDIR
     d = base / f"{design}-s{seed}"
     d.mkdir(parents=True, exist_ok=True)
-    paths = ResetPaths(pristine=d / "pristine.db", live=d / "live.db", fixture=d / "fixture.json")
+    paths = ResetPaths(pristine=d / "pristine.db", live=d / "live.db", fixture=d / "fixture.json",
+                       flags=d / "flags.json")
 
     fx = make_fixture(design, seed)
     if rebuild or not paths.pristine.exists():
@@ -76,6 +78,8 @@ def reset(design: str, seed: int, workdir: str | os.PathLike | None = None,
     for suffix in ("", "-wal", "-shm", "-journal"):
         Path(str(paths.live) + suffix).unlink(missing_ok=True)
     shutil.copyfile(paths.pristine, paths.live)
+    # Portal fault flags live next to the DB. Only the portal process is given this path.
+    paths.flags.write_text(json.dumps({"flags": fx["faults"].get("portal_flags", {})}, sort_keys=True))
     return paths
 
 

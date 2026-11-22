@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30))
 UPDATED_AT = "2026-11-20T09:00:00+05:30"   # fixed, so seeding is byte-deterministic
-BUILT_DESIGNS = {"C0"}
+BUILT_DESIGNS = {"C0", "R1", "S1"}
 
 # Synthetic names only. Never real patient data.
 PATIENT_NAMES = [
@@ -96,7 +96,19 @@ def _seeded(design: str, seed: int) -> dict:
     return _assemble(request, rows)
 
 
+def _faults(design: str, fx: dict) -> dict:
+    """Evaluator-only fault description. Never reaches FlightDeck."""
+    target, decoy = fx["rows"][0]["id"], fx["rows"][1]["id"]
+    if design == "R1":   # rows swapped in the browser; the DB is untouched
+        return {"browser_mutation": "swap_first_two_rows"}
+    if design == "S1":   # backend writes the decoy instead of the target
+        return {"portal_flags": {"miswrite": {"from": target, "to": decoy}}}
+    return {}
+
+
 def make_fixture(design: str, seed: int) -> dict:
     if design not in BUILT_DESIGNS:
         raise ValueError(f"design {design!r} not built yet")
-    return _canonical() if seed == 0 else _seeded(design, seed)
+    fx = _canonical() if seed == 0 else _seeded(design, seed)
+    fx["faults"] = _faults(design, fx)
+    return fx
