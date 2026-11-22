@@ -1,4 +1,4 @@
-"""One FlightDeck run (runtime): pre-flight, pre-write checks (A1), act, verify, seal.
+"""One FlightDeck run (runtime): pre-flight, pre-write checks (A1), act, repair (A1), verify, seal.
 
 Gets only a page, the portal URL, an opaque run ID, the confirmed contract, the recorded script
 and the request. Every run ends in seal(); a receipt is never written any other way.
@@ -15,6 +15,9 @@ from playwright.sync_api import Page
 from flightdeck.checks import Decision, prewrite
 from flightdeck.contract import requested_lines, short
 from flightdeck.executor import replay
+from flightdeck.ladder import BUDGET, propose
+from flightdeck.repair import trial
+from flightdeck.sandbox import OpenSandbox
 from flightdeck.receipt_rules import CHANGE_CLAIM, compute_verdict, seal
 from flightdeck.verifier import Evidence, preflight, verify
 
@@ -38,6 +41,8 @@ def _unknown(contract: dict, pre, target: str) -> list[str]:
 
 
 def _why_no_write(decision: Decision | None, guard_events: list[dict], target: str, error: str | None) -> str:
+    if error and "control_not_found" in error and not guard_events and not decision:
+        return "Stopped before any write: the recorded control is not in the target's row."
     if decision and decision.then == "refuse_no_change":
         return f"Refused. {decision.reason}, and the contract says to change nothing when that slot is taken."
     if decision:
@@ -83,8 +88,28 @@ def _summary(target: str, verdict: str, wrote: bool, v: dict, message: str | Non
     return " ".join(parts)[:400]
 
 
+def _rules_repair(page: Page, base: str, contract: dict, script: dict, request: dict,
+                  open_sandbox: OpenSandbox, run_dir: Path) -> tuple[dict | None, dict | None]:
+    """Ladder candidates, trialled in order on fresh sandboxes. Returns (repair block, accepted)."""
+    candidates = propose(page, base, script, request)[:BUDGET]
+    if not candidates:
+        return None, None
+    tried, accepted = 0, None
+    for number, cand in enumerate(candidates, start=1):
+        tried = number
+        if trial(cand, open_sandbox, contract, script, run_dir, number)["accepted"]:
+            accepted = cand
+            break
+    target = request["target_id"]
+    block = {"proposer": "rules", "candidates_tried": tried, "accepted": accepted is not None,
+             "applied_actions": [f"click '{n}' in the row showing {target}" for n in accepted["clicks"]]
+             if accepted else [],
+             "sandbox_runs": tried, "model_calls": 0, "model_cost_usd": 0}
+    return block, accepted
+
+
 def run_case(page: Page, base_url: str, run_id: str, contract: dict, script: dict, request: dict,
-             runs_dir: str | Path, arm: str = "A0") -> dict:
+             runs_dir: str | Path, arm: str = "A0", open_sandbox: OpenSandbox | None = None) -> dict:
     if arm not in ARMS:
         raise ValueError(f"arm {arm!r} not built yet")
     t0 = time.monotonic()
@@ -101,6 +126,14 @@ def run_case(page: Page, base_url: str, run_id: str, contract: dict, script: dic
                   "guard_events": []}
     else:
         action = replay(page, base, script, request, guard=(arm != "A0"))
+    repair = None
+    if (arm != "A0" and not decision and action["writes_submitted"] == 0
+            and action["failed_row_step"] and open_sandbox is not None):
+        repair, accepted = _rules_repair(page, base, contract, script, request, open_sandbox, ev.dir)
+        if accepted:   # the run's one write, through the repaired step; never retried
+            first_guard_events = action["guard_events"]
+            action = replay(page, base, script, request, guard=True, repair=accepted)
+            action["guard_events"] = first_guard_events + action["guard_events"]
     wrote = action["writes_submitted"] == 1
     v = verify(page, base, contract, pre, wrote, ev)
     verdict = compute_verdict(v["checks"])
@@ -111,6 +144,13 @@ def run_case(page: Page, base_url: str, run_id: str, contract: dict, script: dic
     else:
         outcome = "stopped_before_write"
     why = "" if wrote else _why_no_write(decision, action["guard_events"], target, action["error"])
+    if repair and not wrote:
+        why += f" {repair['candidates_tried']} rules repair(s) tried on a staging copy; none was accepted."
+    elif repair and wrote:
+        why = (f"Repaired before the write ({'; '.join(repair['applied_actions'])}), validated on a "
+               "staging copy.")
+    elif not wrote and not decision and action.get("failed_row_step") and arm != "A0":
+        why += " The rules ladder found no candidate repair."
 
     receipt = {
         "receipt_id": f"rcpt-{hexid}",
@@ -121,7 +161,7 @@ def run_case(page: Page, base_url: str, run_id: str, contract: dict, script: dic
         "action": {"outcome": outcome,
                    "writes_submitted": action["writes_submitted"],
                    "portal_message": action["portal_message"],
-                   "guard_events": action["guard_events"], "repair": None},
+                   "guard_events": action["guard_events"], "repair": repair},
         "claim": CHANGE_CLAIM if wrote else "no_change",
         "checks": v["checks"],
         "affected_records": [] if verdict == "verified_within_scope" else v["affected"],

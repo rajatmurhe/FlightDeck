@@ -24,6 +24,7 @@ from harness.fixtures import make_fixture
 from harness.mutations import install
 from harness.portal.server import running
 from harness.reset import DEFAULT_WORKDIR, reset
+from harness.sandbox import SandboxProvider
 from harness.score import score_run
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +61,11 @@ def run(design: str, seed: int, arm: str = "A0", workdir: str | Path | None = No
         ctx = browser.new_context()
         stack.callback(ctx.close)
         install(ctx, fx)
-        out = run_case(ctx.new_page(), url, run_id, contract, script, request, runs, arm=arm)
+        open_sandbox = None
+        if arm != "A0":   # repairs are trialled on sandbox seeds 101+ of the same design
+            open_sandbox = SandboxProvider(design, browser, state / "sandbox").opener()
+        out = run_case(ctx.new_page(), url, run_id, contract, script, request, runs, arm=arm,
+                       open_sandbox=open_sandbox)
         if out["write_at"] is not None:   # the portal keeps serving during the settle
             time.sleep(max(0.0, settle - (time.monotonic() - out["write_at"])))
 
