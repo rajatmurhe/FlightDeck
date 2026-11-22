@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 IST = timezone(timedelta(hours=5, minutes=30))
-KNOWN_FLAGS: set[str] = set()   # Day 3+: S1 miswrite, Day 5: I1 / B1
+KNOWN_FLAGS = {"miswrite"}   # Day 5 adds I1 / B1
 NEW_START = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -49,6 +49,9 @@ def load_flags(path: Path | None) -> dict:
     unknown = set(flags) - KNOWN_FLAGS
     if unknown:
         raise UnknownFlagError(f"unknown fault flags: {sorted(unknown)}")
+    mw = flags.get("miswrite")
+    if mw is not None and not (isinstance(mw, dict) and set(mw) == {"from", "to"}):
+        raise UnknownFlagError("miswrite flag must be {'from': id, 'to': id}")
     return flags
 
 
@@ -127,12 +130,15 @@ def create_app(db_path: str | Path, flags_path: str | Path | None = None) -> Fas
                           error="Enter a date and time.")
         start = datetime.fromisoformat(new_start).replace(tzinfo=IST).isoformat()
         now = datetime.now(IST).isoformat(timespec="seconds")
+        # S1 fault: the backend writes a different row but reports success as usual.
+        mw = load_flags(flags_file).get("miswrite")
+        write_id = mw["to"] if mw and mw["from"] == appointment_id else appointment_id
         # Deliberately no slot-conflict check: double-booking is possible.
         with closing(connect()) as con, con:
             con.execute("UPDATE appointments SET start = ?, updated_at = ? WHERE id = ?",
-                        (start, now, appointment_id))
+                        (start, now, write_id))
             con.execute("INSERT INTO notifications (appt_id, kind, at) VALUES (?, 'rescheduled', ?)",
-                        (appointment_id, now))
+                        (write_id, now))
         return RedirectResponse("/appointments?msg=updated", status_code=303)
 
     return app
