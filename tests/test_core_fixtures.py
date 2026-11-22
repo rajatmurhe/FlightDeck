@@ -1,5 +1,5 @@
 """Day-5 gate: O1 refuses, O2 completes, I1 stops with unable_to_verify, B1 verifies within scope.
-Plus the ID guard on R1 and the A0 fixture check on O1. Seed 1 here; the full dev-seed matrix is
+Plus the A0 fixture check on O1 (R1 under A1 is covered in test_repair.py). Seed 1 here; the full dev-seed matrix is
 python -m harness.checkpoint.
 """
 import pytest
@@ -78,17 +78,6 @@ def test_b1_verifies_within_scope(runs):
 
 
 # ---- Supporting behaviour ------------------------------------------------------------------
-
-def test_r1_guard_blocks_the_decoy_click(runs):
-    out = runs("R1")
-    r, who = out["receipt"], roles(out["fixture"])
-    assert r["action"]["guard_events"] == [{"step": 2, "expected_id": who["target"],
-                                            "displayed_id": who["decoy"], "action": "blocked_click"}]
-    assert (r["action"]["outcome"], r["action"]["writes_submitted"]) == ("stopped_before_write", 0)
-    assert r["verdict"] == "verified_within_scope"
-    assert empty_diff(out["report"]["db"])
-    assert as_frozen("R1", out)["ok"]
-
 
 def test_a0_on_o1_double_books_and_is_caught(runs):
     out = runs("O1", "A0")
